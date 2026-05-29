@@ -19,7 +19,7 @@ env:
 
 jobs:
   build-linux:
-    name: Ubuntu ${{ matrix.arch }}
+    name: Linux ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -27,7 +27,8 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, arch: x64 } # amd64
-          - { os: ubuntu-24.04-arm, arch: arm64 } # native arm64 runner
+          # TODO: re-enable once the x64 build is green
+          # - { os: ubuntu-24.04-arm, arch: arm64 } # native arm64 runner
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,10 +39,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           arch: ${{ matrix.arch }}
-      - name: Install Linux packaging dependencies
-        # rpmbuild is needed for the .rpm target; dpkg/fakeroot (deb, AppImage)
-        # are already present on the runner.
-        run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Install Linux build & packaging dependencies
+        # libsecret-1-0: required by the keytar native module (libsecret-1.so.0)
+        #   that the unit tests load.
+        # rpm: provides rpmbuild for the .rpm target (dpkg/fakeroot for deb &
+        #   AppImage are already present on the runner).
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-0 rpm
       - name: Build production app
         run: yarn build:prod
         env:
@@ -62,7 +65,7 @@ jobs:
       - name: Upload output artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ubuntu-${{ matrix.arch }}-artifacts
+          name: linux-${{ matrix.arch }}-artifacts
           path: |
             dist/*.AppImage
             dist/*.deb
