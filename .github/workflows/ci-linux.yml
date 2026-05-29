@@ -13,6 +13,9 @@ on:
       - linux-vnext
       - 'linux-release-*'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   arm64:
     name: Ubuntu arm64
