@@ -15,67 +15,54 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: 24.15.0
 
 jobs:
-  arm64:
-    name: Ubuntu arm64
-    runs-on: ubuntu-latest
+  build-linux:
+    name: Ubuntu ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, arch: x64 } # amd64
+          - { os: ubuntu-24.04-arm, arch: arm64 } # native arm64 runner
     steps:
       - uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository || github.repository }}
           ref: ${{ inputs.ref }}
           submodules: recursive
-      - name: Package and test application in container
-        uses: shiftkey/desktop-ubuntu-arm64-packaging@9be09c4b945873e6509baaf690d457aae08cf901
+      - uses: ./.github/actions/setup-ci-environment
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          arch: ${{ matrix.arch }}
+      - name: Install Linux packaging dependencies
+        # rpmbuild is needed for the .rpm target; dpkg/fakeroot (deb, AppImage)
+        # are already present on the runner.
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Build production app
+        run: yarn build:prod
+        env:
+          npm_config_arch: ${{ matrix.arch }}
+          TARGET_ARCH: ${{ matrix.arch }}
+      - name: Prepare testing environment
+        run: yarn test:setup
+        env:
+          npm_config_arch: ${{ matrix.arch }}
+      - name: Run unit tests
+        run: yarn test:unit
+      - name: Run script tests
+        run: yarn test:script
+      - name: Package production app
+        run: yarn package
+        env:
+          npm_config_arch: ${{ matrix.arch }}
       - name: Upload output artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ubuntu-arm64-artifacts
-          path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
-            dist/*.sha256
-          retention-days: 5
-          if-no-files-found: error
-  arm:
-    name: Ubuntu arm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref }}
-          submodules: recursive
-      - name: Package and test application in container
-        uses: shiftkey/desktop-ubuntu-arm-packaging@dd75ebc57f69fdb9319ab2b0fe11b253bb1ff2a4
-      - name: Upload output artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-arm-artifacts
-          path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
-            dist/*.sha256
-          retention-days: 5
-          if-no-files-found: error
-  amd64:
-    name: Ubuntu x64
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref }}
-          submodules: recursive
-      - name: Package and test application in container
-        uses: shiftkey/desktop-ubuntu-amd64-packaging@ea7b7a6a940a6b907b160b946439c5c7a516f9f1
-      - name: Upload output artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-amd64-artifacts
+          name: ubuntu-${{ matrix.arch }}-artifacts
           path: |
             dist/*.AppImage
             dist/*.deb
@@ -86,7 +73,7 @@ jobs:
 
   publish:
     name: Create GitHub release
-    needs: [arm64, arm, amd64]
+    needs: [build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -94,10 +81,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use Node.js 22.22.2
+      - name: Use Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
-          node-version: 22.22.2
+          node-version: ${{ env.NODE_VERSION }}
           cache: yarn
 
       - name: Download all artifacts
